@@ -1,28 +1,25 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+using System;
 using System.Runtime.InteropServices;
 
-namespace Gamemaker
+namespace Gamemaker.Internal
 {
-    public static class Internal
+    public enum EGmsEventType
     {
-        enum EventIDs
-        {
-            EVENT_OTHER_SOCIAL = 70
-        }
+        EVENT_ASYNC_STEAM = 69,
+        EVENT_ASYNC_SOCIAL = 70
+    }
 
-        private delegate void GmlEventPerformAsyncDelegate(int mapID, int eventType = (int)EventIDs.EVENT_OTHER_SOCIAL);
-        private delegate int GmlDsMapCreateDelegate(int n);
-        private delegate bool GmlDsMapAddDoubleDelegate(int mapID, string key, double value);
-        private delegate bool GmlDsMapAddStringDelegate(int mapID, string key, string value);
+    public static class GamemakerInternal
+    {
+        internal delegate void GmlEventPerformAsyncDelegate(int mapID, int eventType);
+        internal delegate int GmlDsMapCreateDelegate(int n);
+        internal delegate bool GmlDsMapAddDoubleDelegate(int mapID, string key, double value);
+        internal delegate bool GmlDsMapAddStringDelegate(int mapID, string key, string value);
 
-        private static GmlEventPerformAsyncDelegate GmlEventPerformAsync_Internal;
-        private static GmlDsMapCreateDelegate GmlDsMapCreate_Internal;
-        private static GmlDsMapAddDoubleDelegate GmlDsMapAddDouble_Internal;
-        private static GmlDsMapAddStringDelegate GmlDsMapAddString_Internal;
+        internal static GmlEventPerformAsyncDelegate GmlEventPerformAsync_Internal;
+        internal static GmlDsMapCreateDelegate GmlDsMapCreate_Internal;
+        internal static GmlDsMapAddDoubleDelegate GmlDsMapAddDouble_Internal;
+        internal static GmlDsMapAddStringDelegate GmlDsMapAddString_Internal;
 
         [DllExport("RegisterCallbacks", CallingConvention.Cdecl)]
         public static unsafe double RegisterCallbacks(IntPtr ptr1, IntPtr ptr2, IntPtr ptr3, IntPtr ptr4)
@@ -34,69 +31,118 @@ namespace Gamemaker
 
             return 1;
         }
+    }
+    public class DsMap
+    {
+        public static string TypeKey { get; set; } = "_type_";
 
-        public class DsMap
+        public int ID { get; private set; } = -1;
+
+        public DsMap()
         {
-            public int ID { get; private set; } = -1;
+            ID = GamemakerInternal.GmlDsMapCreate_Internal(0);
+        }
 
-            public DsMap()
+        public DsMap(int typeID)
+        {
+            ID = GamemakerInternal.GmlDsMapCreate_Internal(0);
+            AddKeyValuePair(TypeKey, typeID);
+        }
+
+        public static implicit operator double(DsMap map)
+        {
+            return map.ID;
+        }
+
+        public object this[string key]
+        {
+            set
             {
-                ID = GmlDsMapCreate_Internal(0);
+                if(
+                    value is double ||
+                    value is float  ||
+                    value is decimal  ||
+                    value is sbyte ||
+                    value is byte ||
+                    value is short ||
+                    value is ushort ||
+                    value is int ||
+                    value is uint
+                )
+                    AddKeyValuePair(key, (double)Convert.ChangeType(value, typeof(double)));
+                else if (value is bool)
+                    AddKeyValuePair(key, (bool)value ? 1d : 0d);
+                else if (value is DsMap)
+                    AddKeyValuePair(key, (DsMap)value);//nested maps
+                else if (value is null)
+                    AddKeyValuePair(key, "");//empty str instead of null
+                else//+long, ulong
+                    AddKeyValuePair(key, value.ToString());//we can assign objects directly that implement custom ToString overload (like json objects and etc)
+            }
+        }
+
+        public bool AddKeyValuePair(string key, double value)
+        {
+            if (ID != -1)
+            {
+                GamemakerInternal.GmlDsMapAddDouble_Internal(ID, key, value);
+                return true;
             }
 
-            public object this[string key]
+            return false;
+        }
+
+        public bool AddKeyValuePair(string key, string value)
+        {
+            if (ID != -1)
             {
-                set
-                {
-                    if(
-                        value is double 
-                        || value is float 
-                        || value is decimal 
-                        || value is sbyte
-                        || value is byte
-                        || value is short
-                        || value is ushort
-                        || value is int
-                        || value is uint
-                    )
-                        AddKeyValuePair(key, (double)value);
-                    else if(value is bool)
-                        AddKeyValuePair(key, (bool)value ? 1d : 0d);
-                    else
-                        AddKeyValuePair(key, value.ToString());//we can assign objects directly that implement custom ToString overload (like json objects and etc)
-                }
+                GamemakerInternal.GmlDsMapAddString_Internal(ID, key, value);
+                return true;
             }
 
-            public bool AddKeyValuePair(string key, double value)
+            return false;
+        }
+
+        public bool Dispatch(EGmsEventType eventType)
+        {
+            if (ID != -1)
             {
-                if (ID != -1)
-                {
-                    GmlDsMapAddDouble_Internal(ID, key, value);
-                    return true;
-                }
-
-                return false;
-            }
-
-            public bool AddKeyValuePair(string key, string value)
-            {
-                if (ID != -1)
-                {
-                    GmlDsMapAddString_Internal(ID, key, value);
-                    return true;
-                }
-
-                return false;
-            }
-
-            public bool Dispatch(string type = null)
-            {
-                if(type != null) AddKeyValuePair("_type", type);
-
-                GmlEventPerformAsync_Internal(ID);
+                GamemakerInternal.GmlEventPerformAsync_Internal(ID, (int)eventType);
 
                 return true;
             }
+
+            return false;
+        }
+
+        public bool Dispatch(string typeName, EGmsEventType eventType)
+        {
+            //return AddKeyValuePair(TypeKey, typeName) && Dispatch(eventType);
+
+            if (ID != -1)
+            {
+                AddKeyValuePair(TypeKey, typeName);
+
+                GamemakerInternal.GmlEventPerformAsync_Internal(ID, (int)eventType);
+
+                return true;
+            }
+
+            return false;
+        }
+
+        public bool Dispatch(int typeID, EGmsEventType eventType)
+        {
+            if (ID != -1)
+            {
+                AddKeyValuePair(TypeKey, typeID);
+
+                GamemakerInternal.GmlEventPerformAsync_Internal(ID, (int)eventType);
+
+                return true;
+            }
+
+            return false;
         }
     }
 }
