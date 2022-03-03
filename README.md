@@ -27,3 +27,11 @@ map.Dispatch("discord_init");
 ```
 
 # C++
+Add `gamemaker.cpp` and `gamemaker.h` to your project, then just `#include "gamemaker.h"` in your extension.
+
+## Example:
+```c++
+ds_map report("_result_", result_status);
+report.set("value", (double)10);
+bool dispatch_res = report.dispatch(gml_event_type::social);
+```
